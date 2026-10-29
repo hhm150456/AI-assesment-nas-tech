@@ -225,7 +225,7 @@ class ApiClient {
   Uri _endpoint(String path) {
     if (_baseUrl.isEmpty) {
       throw const ApiException(
-        'Set API_BASE_URL when launching the app, for example --dart-define=API_BASE_URL=https://your-service.onrender.com.',
+        'API_BASE_URL is empty. Set it with --dart-define=API_BASE_URL=https://your-service.onrender.com or configure the default in lib/core/config.dart.',
       );
     }
     final base = Uri.tryParse(_baseUrl);

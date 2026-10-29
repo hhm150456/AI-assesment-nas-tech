@@ -28,7 +28,7 @@ The app never calls the bridge or Dify directly. The proxy uses:
 - `DIFY_KEY_TRANSLATE` — API key for the one-shot workflow app.
 - `DIFY_KEY_CONVERSATION` — API key for the conversation workflow app.
 
-The Dify keys belong in your hosting provider's secret environment variables. Do not put keys in Flutter configuration, `.env` files, source control, or build arguments. `API_BASE_URL` is the backend's public URL and is not a secret.
+`DIFY_KEY_TRANSLATE` and `DIFY_KEY_CONVERSATION` belong in the proxy host's secret environment variables. The imported Dify workflows separately need their `GROQ_API_KEY`, `OPENAI_KEY`, and `BRIDGE_KEY` secrets; `BRIDGE_URL` is the backend's public URL. Do not put keys in Flutter configuration, `.env` files, source control, or build arguments. `API_BASE_URL` is the backend's public URL and is not a secret. The Flutter app defaults to `https://ai-assesment-nas-tech-proxy.vercel.api`; change `apps/mobile/lib/core/config.dart` to update it, or pass `--dart-define=API_BASE_URL=<url>` to override it for a run or build.
 
 The proxy and bridge routes are one service. Dify calls the service's `/sessions` endpoints with `X-API-Key` set to `BRIDGE_KEY`. The app does not need Firestore credentials or the bridge key.
 
@@ -50,13 +50,13 @@ From the repository root, enter the Flutter app folder:
 ```powershell
 Set-Location apps\mobile
 flutter pub get
-flutter run --dart-define=API_BASE_URL=https://your-service.onrender.com
+flutter run
 ```
 
 Build a release APK:
 
 ```powershell
-flutter build apk --release --dart-define=API_BASE_URL=https://your-service.onrender.com
+flutter build apk --release
 ```
 
 The APK is written to `apps/mobile/build/app/outputs/flutter-apk/app-release.apk`. From `apps/mobile`, install it on a connected Android device with:
@@ -65,7 +65,7 @@ The APK is written to `apps/mobile/build/app/outputs/flutter-apk/app-release.apk
 adb install -r build\app\outputs\flutter-apk\app-release.apk
 ```
 
-Run `flutter test` and `flutter analyze` from `apps/mobile` before building. For a local proxy on Android Emulator, use `http://10.0.2.2:8080` as the API base URL. A physical phone needs a reachable address on the same network. Use HTTPS for deployed services. iOS builds require macOS and Xcode.
+Run `flutter test` and `flutter analyze` from `apps/mobile` before building. To test the web version in Chrome, run `flutter run -d chrome`. For a local proxy on Android Emulator, override the default with `flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8080`. A physical phone needs a reachable address on the same network. Use HTTPS for deployed services. iOS builds require macOS and Xcode.
 
 The anonymous device ID is generated once and stored locally using `shared_preferences`; it is not an authentication token. Conversation session IDs exist in memory only and are discarded when starting a new conversation or closing the app.
 
@@ -111,6 +111,25 @@ Keep credentials and key values outside source control. For local Firestore acce
 
 Every client request must include `X-Device-Id`. Workflow outcomes use HTTP 200 and a `status` of `success`, `started`, or `error`. Proxy input, rate-limit, size, and transport failures use non-2xx responses with `{ "status": "error", "message": "..." }`. Dify error details and file URLs are not returned for transport failures; translated audio is downloaded by the proxy and returned as base64.
 
+#### Dify workflow contract
+
+The Dify exports are in [`workflows/`](./workflows/). The proxy calls one app for translation and one for conversation. The following are the inputs and outputs the proxy requires; configure the Dify Start and End nodes to match these names and types.
+
+| Workflow | Inputs | Required successful outputs |
+|---|---|---|
+| Translate | `audio` (Dify audio file object), `target_language` | `status: "success"`, `translation`, `transcript`, `source_language`, `target_language`, `audio` (non-empty file array; first item must have a URL on the configured Dify API origin) |
+| Conversation `action: "start"` | `lang_a`, `lang_b` | `status: "started"`, `session_id`, `lang_a`, `lang_b` |
+| Conversation `action: "turn"` | `session_id`, `speaker` (`A` or `B`), `audio` (Dify audio file object) | `status: "success"`, `seq` (string or number), `translation`, `transcript`, `speaker`, `source_lang`, `target_lang`, `audio` (as above) |
+| Conversation `action: "summary"` | `session_id`, `close_after` (`"yes"` or `"no"`) | `status: "success"`, `summary_a`, `summary_b`, `lang_a`, `lang_b`, `closed` (`"yes"` or `"no"`) |
+
+For any workflow-level failure, return `status: "error"` and a user-safe `message`. The proxy does not require or return an `error_code`. It uploads audio to Dify before running the workflow, and fetches generated audio from the Dify origin before returning `audio_base64` and `audio_mime` to the client. The client-facing successful translation response uses `source_language` and `audio_base64`; it does not use `detected_source_language` or an `audio_out` field.
+
+Conversation state is persisted by the bridge in Firestore; Dify should pass the same `session_id` through each turn and summary request. Starting a new conversation creates a distinct session. The client does not expose a `reset` action, and starting a new session does not close the previous one. Summarization can close a session by sending `close_after: "yes"`.
+
+**The checked-in Dify exports do not currently satisfy this proxy contract unchanged.** In `P1_VoiceTranslate`, the success End node's `status` is the TTS HTTP status code, not the required `"success"` string; the failure End nodes do not return the required `status: "error"` and `message`. In the conversation export, the Start node marks `speaker`, `lang_a`, `lang_b`, `audio`, and `close_after` as required for every action, although the proxy only sends each on the relevant action. Its start/turn/summary End nodes also do not return the status and response fields required above. The turn End node reports the session's pre-turn count as `seq`, rather than the sequence returned by `save_turn`. The summary branch requests 200 turns but its URL is malformed (`{{BRIDGE_URL}}c/sessions/...`), does not use `close_after` or call `/close`, and omits the required `status`, language, and `closed` outputs. Its save request also has no fallback that returns the generated summary if persisting it fails. Importing these packages as-is will therefore not provide a working end-to-end integration; correct the Dify workflows and publish them before running the mobile app against them.
+
+The exports configure Groq Whisper `whisper-large-v3`, OpenAI `gpt-4o-mini` for translation and summary, and OpenAI `gpt-4o-mini-tts` with voice `alloy` and MP3 output. They use Dify environment secrets `GROQ_API_KEY`, `OPENAI_KEY`, and, for conversation, `BRIDGE_KEY`; configure `BRIDGE_URL` to the deployed backend URL. These model names describe the checked-in exports, not necessarily a separately published Dify version.
+
 ## Deploy the backend to Render
 
 The root [`render.yaml`](./render.yaml) is a Render Blueprint for the combined Docker backend. It builds from `services/proxy/Dockerfile`, configures `/health` as the health check, and defaults to Render's free web-service plan. Free services are intended for testing and hobby projects, not production. They spin down after 15 minutes without inbound traffic and typically take about a minute to wake; they also have monthly instance-hour, outbound-bandwidth, and build-minute limits. Firestore and Dify usage may have separate charges. See [Render's free-instance limits](https://render.com/docs/free) before deploying.
@@ -146,11 +165,19 @@ Write-Output $BRIDGE_KEY
 
 Render's Blueprint marks credentials and API keys as unsynced values, so enter them in Render's environment settings rather than in `render.yaml`. The `FIRESTORE_DATABASE_ID` defaults to `(default)`; change it in Render if using a named database. Configure `CORS_ALLOWED_ORIGINS` only if a browser client needs access.
 
-The public backend URL is also the bridge base URL. Configure the Dify conversation workflow's HTTP Request nodes to call that URL with header `X-API-Key: <BRIDGE_KEY>`. The workflow should:
+The public backend URL is also the bridge base URL. Configure the Dify conversation workflow's HTTP Request nodes to call that URL with header `X-API-Key: <BRIDGE_KEY>`. The bridge routes are:
 
-- On `action=start`, `POST /sessions` with JSON `{"lang_a":"...","lang_b":"..."}` and return the resulting `session_id`, `lang_a`, and `lang_b` to the proxy as `status: "started"`.
-- On `action=turn`, retrieve context from `GET /sessions/{session_id}/turns`, run the translation, then `POST /sessions/{session_id}/turns` with `speaker`, `source_lang`, `target_lang`, `source_text`, and `translated_text`. Return `status: "success"`, the bridge's `seq`, `translation`, `transcript`, `speaker`, `source_lang`, `target_lang`, and the generated `audio` file list to the proxy.
-- On `action=summary`, retrieve the session turns, generate both summaries, and `POST /sessions/{session_id}/summary` with `text_a` and `text_b`. If `close_after` is `"yes"`, also call `POST /sessions/{session_id}/close`. Return `status: "success"`, `summary_a`, `summary_b`, `lang_a`, `lang_b`, and `closed` to the proxy.
+| Method | Path | Behavior |
+|---|---|---|
+| POST | `/sessions` | Creates an active session from `lang_a` and `lang_b`; returns `session_id`, `lang_a`, and `lang_b`. |
+| GET | `/sessions/{session_id}` | Returns session languages and turn count for an active session. |
+| GET | `/sessions/{session_id}/turns?limit=N` | Returns recent turns as `history_text`; default limit is 10, maximum is 500. |
+| POST | `/sessions/{session_id}/turns` | Saves a turn and transactionally assigns its sequence. Requires `speaker`, `source_lang`, `target_lang`, `source_text`, and `translated_text`; optional `latency_ms`. |
+| POST | `/sessions/{session_id}/summary` | Saves `text_a` and `text_b` to the session. |
+| POST | `/sessions/{session_id}/close` | Marks the session closed. |
+| POST | `/transcribe` | Optional authenticated transcription endpoint accepting `audio_url` and `extension`; downloads the audio and transcribes it with OpenAI `gpt-4o-transcribe`. |
+
+For the proxy contract above, the conversation workflow should create the bridge session on `action: "start"` and return the bridge's session ID. On `action: "turn"`, it should reject unknown/closed sessions, load prior history if the translation prompt uses it, synthesize the translated audio, and only after TTS succeeds save exactly one turn through the bridge; return the saved sequence and generated Dify audio file list along with the required outputs. On `action: "summary"`, it should read the turns, generate both language summaries, save them through the bridge, and close the session only when `close_after` is `"yes"`. The bridge stores turns under `sessions/{id}/turns/{sequence}` and stores the summary on the session document. Field names in Firestore use camelCase (for example `langA`, `turnCount`, `sourceLang`, and `translatedText`).
 
 These workflow edits happen in Dify and are not represented by source files in this repository. Verify that the workflow does not also perform a second write to Firestore for the same session or turn.
 
@@ -181,7 +208,7 @@ Set-Location apps\mobile
 flutter pub get
 flutter test
 flutter analyze
-flutter run --dart-define=API_BASE_URL=https://<your-service>.onrender.com
+flutter run
 ```
 
 In the app, test a one-shot translation, start a conversation, record/send turns from both participants, and finish with a summary. Verify that the session and `turns` subcollection appear in Firestore and that the summary/closed state updates. Also check Render logs and Dify workflow logs if a request fails. An installed Android APK or iOS app uses the same backend URL; only publish/store-distribute it if you want other people to install it. For local Flutter-only widget tests, the live Render/Dify/Firestore services are not contacted.
@@ -199,11 +226,17 @@ In the app, test a one-shot translation, start a conversation, record/send turns
 
 ## Languages and audio limits
 
-The single ordered list of 57 supported display names is in [`apps/mobile/lib/core/languages.dart`](./apps/mobile/lib/core/languages.dart) and is used by the searchable pickers. Supported extensions are MP3, MP4, MPEG, MPGA, M4A, WAV, WEBM, OGG, and FLAC. Files must be at least 1 KiB and no larger than 20 MiB; microphone recordings are limited to two minutes.
+The app's searchable language pickers use the 57 display names in [`apps/mobile/lib/core/languages.dart`](./apps/mobile/lib/core/languages.dart). The proxy accepts MP3, MP4, MPEG, MPGA, M4A, WAV, WEBM, OGG, and FLAC audio, with matching content types. Files must be at least 1 KiB and no larger than 20 MiB; microphone recordings are limited to two minutes. These are client/proxy input constraints, not a guarantee that every configured transcription or translation model supports every language pair. The workflow dropdowns in Dify must be kept in sync with the app list.
+
+The proxy's `/transcribe` bridge endpoint separately uses OpenAI `gpt-4o-transcribe`; the checked-in Dify workflows instead transcribe through Groq Whisper `whisper-large-v3`.
+
+## Errors and workflow behavior
+
+The proxy returns `{ "status": "error", "message": "..." }` for both workflow-level failures (normally HTTP 200) and proxy/validation failures (non-2xx). It does not expose a stable `error_code` field and does not pass Dify error codes through to the app. The bridge returns HTTP 401 for a missing/incorrect key, HTTP 404 for an unknown session, and HTTP 409 for a closed session; the proxy may report a failed upstream workflow with a generic message instead. Workflow-specific errors such as silent audio, unintelligible speech, unsupported target language, or translation length must be implemented in Dify and are not normalized by the proxy.
 
 ## Known issues
 
-- Dify workflows must be published and return the documented output names, including an `audio` array whose first item has a URL on the configured Dify API origin.
+- The checked-in Dify exports currently mismatch the proxy contract as described above; correct and publish them before expecting successful mobile requests. Successful audio must be an `audio` array whose first item has a URL on the configured Dify API origin.
 - The in-memory rate limiter is process-local and resets on restart. Use a shared limiter when running multiple backend instances. Render free instances may restart or sleep while idle.
 - A timed-out conversation request may have completed upstream even though the client did not receive its response. The app prevents concurrent duplicate taps and preserves the same recording for retry, but the specified API has no idempotency key, so retrying an ambiguous timeout could create a second turn.
 - Audio decoder support varies by device and source format. If the device cannot decode a selected file, convert it to a supported format and retry.
@@ -224,4 +257,5 @@ The single ordered list of 57 supported display names is in [`apps/mobile/lib/co
 - [ ] End and summarize; confirm both language summaries display and recording controls lock.
 - [ ] Start a new conversation and confirm its new session has no previous turn history.
 - [ ] Confirm Dify can create a session and save turns/summary through the backend `/sessions` routes, and that calls without a valid `X-API-Key` are rejected.
+- [ ] After correcting and publishing the Dify workflows, check they return every required output name in the workflow contract table above and that generated audio uses the configured Dify API origin.
 - [ ] For web, verify an allowed origin works and an unlisted origin is rejected by CORS.
