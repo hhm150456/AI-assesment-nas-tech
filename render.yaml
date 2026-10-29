@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: voice-translate-backend
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./services/proxy/Dockerfile
+    dockerContext: ./services/proxy
+    healthCheckPath: /health
+    envVars:
+      - key: DIFY_API_BASE
+        value: https://api.dify.ai
+      - key: DIFY_KEY_TRANSLATE
+        sync: false
+      - key: DIFY_KEY_CONVERSATION
+        sync: false
+      - key: BRIDGE_KEY
+        sync: false
+      - key: FIREBASE_CREDENTIALS_JSON
+        sync: false
+      - key: FIRESTORE_DATABASE_ID
+        value: (default)

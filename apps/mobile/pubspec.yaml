@@ -1,0 +1,28 @@
+name: voice_translate
+description: A multilingual voice translation client backed by Dify workflows.
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.9.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  audioplayers: ^6.8.1
+  file_picker: ^13.3.0
+  http: ^1.6.0
+  http_parser: ^4.1.2
+  path_provider: ^2.1.6
+  permission_handler: ^13.0.2
+  record: ^7.1.2
+  shared_preferences: ^2.5.6
+  uuid: ^4.6.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
