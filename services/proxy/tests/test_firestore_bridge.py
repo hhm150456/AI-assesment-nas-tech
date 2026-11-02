@@ -94,3 +94,48 @@ class FirestoreBridgeTests(unittest.IsolatedAsyncioTestCase):
         saved_data = save_turn.call_args.args[2]
         self.assertEqual(saved_data["sourceLang"], "French")
         self.assertEqual(saved_data["targetLang"], "English")
+
+    async def test_save_summary_closes_session_when_requested(self) -> None:
+        ref = Mock()
+        with (
+            patch.dict(os.environ, {"BRIDGE_KEY": "test-key"}),
+            patch.object(
+                firestore_bridge, "_get_session", return_value=(ref, {"status": "active"})
+            ),
+        ):
+            response = await self.client.post(
+                "/sessions/test-session/summary",
+                headers={"X-API-Key": "test-key"},
+                json={
+                    "text_a": "Summary A",
+                    "text_b": "Summary B",
+                    "close_after": "yes",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ok": True})
+        updates = ref.update.call_args.args[0]
+        self.assertEqual(updates["summary"]["textA"], "Summary A")
+        self.assertEqual(updates["summary"]["textB"], "Summary B")
+        self.assertEqual(updates["status"], "closed")
+        self.assertIn("closedAt", updates)
+
+    async def test_save_summary_does_not_close_by_default(self) -> None:
+        ref = Mock()
+        with (
+            patch.dict(os.environ, {"BRIDGE_KEY": "test-key"}),
+            patch.object(
+                firestore_bridge, "_get_session", return_value=(ref, {"status": "active"})
+            ),
+        ):
+            response = await self.client.post(
+                "/sessions/test-session/summary",
+                headers={"X-API-Key": "test-key"},
+                json={"text_a": "Summary A", "text_b": "Summary B"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        updates = ref.update.call_args.args[0]
+        self.assertNotIn("status", updates)
+        self.assertNotIn("closedAt", updates)

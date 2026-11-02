@@ -87,6 +87,7 @@ class Turn(BaseModel):
 class Summary(BaseModel):
     text_a: str = Field(max_length=20000)
     text_b: str = Field(max_length=20000)
+    close_after: Literal["yes", "no"] = "no"
 
 
 @router.post("/sessions")
@@ -182,15 +183,18 @@ def add_turn(sid: str, turn: Turn, x_api_key: str = Header(None)):
 def save_summary(sid: str, summary: Summary, x_api_key: str = Header(None)):
     _auth(x_api_key)
     ref, _ = _get_session(sid, must_be_active=False)
-    ref.update(
-        {
-            "summary": {
-                "textA": summary.text_a,
-                "textB": summary.text_b,
-                "createdAt": firestore.SERVER_TIMESTAMP,
-            }
+    updates = {
+        "summary": {
+            "textA": summary.text_a,
+            "textB": summary.text_b,
+            "createdAt": firestore.SERVER_TIMESTAMP,
         }
-    )
+    }
+    if summary.close_after == "yes":
+        updates.update(
+            {"status": "closed", "closedAt": firestore.SERVER_TIMESTAMP}
+        )
+    ref.update(updates)
     return {"ok": True}
 
 

@@ -313,6 +313,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
       final summary = await _api.getConversationSummary(
         sessionId: session.sessionId,
         closeAfter: closeAfter,
+        languageA: session.languageA,
+        languageB: session.languageB,
       );
       if (mounted) {
         setState(() {

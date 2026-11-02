@@ -102,6 +102,8 @@ class ConversationStartRequest(BaseModel):
 class ConversationSummaryRequest(BaseModel):
     session_id: str
     close_after: str
+    lang_a: str = Field(min_length=1, max_length=80)
+    lang_b: str = Field(min_length=1, max_length=80)
 
 
 def _configured(name: str) -> str:
@@ -397,7 +399,7 @@ def _workflow_message(outputs: dict[str, Any], expected_status: str) -> str | No
         return None
     status_code = outputs.get("status_code", status)
     if (
-        expected_status == "success"
+        expected_status in {"started", "success"}
         and isinstance(status_code, int)
         and not isinstance(status_code, bool)
     ):
@@ -456,18 +458,26 @@ async def start_conversation(
             device_id=device_id,
             api_base=api_base,
         )
-        message = _workflow_message(outputs, "started")
+        message = (
+            _workflow_message(outputs, "started")
+            if "status" in outputs or "status_code" in outputs
+            else None
+        )
         if message:
             return JSONResponse(content={"status": "error", "message": message})
         session_id = outputs.get("session_id")
         if not isinstance(session_id, str) or not SESSION_ID_PATTERN.fullmatch(session_id):
             raise ValueError("The workflow returned an invalid conversation id.")
+        lang_a = _output_text(outputs, "lang_a")
+        lang_b = _output_text(outputs, "lang_b")
+        if lang_a != body.lang_a or lang_b != body.lang_b:
+            raise ValueError("The workflow returned different conversation languages.")
         return JSONResponse(
             content={
                 "status": "started",
                 "session_id": session_id,
-                "lang_a": _output_text(outputs, "lang_a"),
-                "lang_b": _output_text(outputs, "lang_b"),
+                "lang_a": lang_a,
+                "lang_b": lang_b,
             }
         )
     except HTTPException:
@@ -563,6 +573,8 @@ async def conversation_summary(
                 "action": "summary",
                 "session_id": session_id,
                 "close_after": body.close_after,
+                "lang_a": body.lang_a,
+                "lang_b": body.lang_b,
             },
             device_id=device_id,
             api_base=api_base,
@@ -571,15 +583,15 @@ async def conversation_summary(
         if message:
             return JSONResponse(content={"status": "error", "message": message})
         closed = _output_text(outputs, "closed")
-        if closed not in {"yes", "no"}:
+        if closed != body.close_after:
             raise ValueError("The workflow returned an invalid closed status.")
         return JSONResponse(
             content={
                 "status": "success",
                 "summary_a": _output_text(outputs, "summary_a"),
                 "summary_b": _output_text(outputs, "summary_b"),
-                "lang_a": _output_text(outputs, "lang_a"),
-                "lang_b": _output_text(outputs, "lang_b"),
+                "lang_a": body.lang_a,
+                "lang_b": body.lang_b,
                 "closed": closed,
             }
         )

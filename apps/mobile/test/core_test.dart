@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:voice_translate/core/audio_file_validator.dart';
@@ -96,5 +97,58 @@ void main() {
     expect(result.targetLanguage, 'French');
     expect(result.audioBytes, Uint8List.fromList([1, 2, 3]));
     expect(result.audioMime, 'audio/mpeg');
+  });
+
+  test('parses a Dify conversation turn after the API prepares its audio', () {
+    final result = ConversationTurnResult.fromJson({
+      'status': 'success',
+      'translation': '这是一个英语录音。',
+      'transcript': 'This is a recording in English.',
+      'speaker': 'A',
+      'source_lang': 'English',
+      'target_lang': 'Chinese',
+      'seq': 0,
+      'audio_base64': base64Encode([1, 2, 3]),
+      'audio_mime': 'audio/mpeg',
+    });
+
+    expect(result.sequence, '0');
+    expect(result.translation, '这是一个英语录音。');
+    expect(result.transcript, 'This is a recording in English.');
+    expect(result.speaker, 'A');
+    expect(result.sourceLanguage, 'English');
+    expect(result.targetLanguage, 'Chinese');
+    expect(result.audioBytes, Uint8List.fromList([1, 2, 3]));
+    expect(result.audioMime, 'audio/mpeg');
+  });
+
+  test('parses a normalized Dify conversation start', () {
+    final result = ConversationSession.fromJson({
+      'status': 'started',
+      'session_id': 'session12345',
+      'lang_a': 'English',
+      'lang_b': 'Arabic',
+    });
+
+    expect(result.sessionId, 'session12345');
+    expect(result.languageA, 'English');
+    expect(result.languageB, 'Arabic');
+  });
+
+  test('parses a normalized Dify conversation summary', () {
+    final result = ConversationSummary.fromJson({
+      'status': 'success',
+      'summary_a': 'Participant A mentioned that the recording is in English.',
+      'summary_b': 'المشارك أ ذكر أن التسجيل باللغة الإنجليزية.',
+      'lang_a': 'English',
+      'lang_b': 'Arabic',
+      'closed': 'yes',
+    });
+
+    expect(result.summaryA, contains('recording is in English'));
+    expect(result.summaryB, contains('التسجيل باللغة الإنجليزية'));
+    expect(result.languageA, 'English');
+    expect(result.languageB, 'Arabic');
+    expect(result.closed, isTrue);
   });
 }

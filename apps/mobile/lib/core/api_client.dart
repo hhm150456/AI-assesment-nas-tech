@@ -97,10 +97,14 @@ class ApiClient {
   Future<ConversationSummary> getConversationSummary({
     required String sessionId,
     required bool closeAfter,
+    required String languageA,
+    required String languageB,
   }) async {
     final json = await _postJson('/api/conversation/summary', {
       'session_id': sessionId,
       'close_after': closeAfter ? 'yes' : 'no',
+      'lang_a': languageA,
+      'lang_b': languageB,
     });
     try {
       return ConversationSummary.fromJson(json);
