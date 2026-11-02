@@ -425,6 +425,8 @@ def _proxy_error(
     *,
     error: str | None = None,
     stage: str | None = None,
+    failure: str | None = None,
+    upstream_status: int | None = None,
 ) -> JSONResponse:
     if error is None:
         error = {
@@ -442,6 +444,10 @@ def _proxy_error(
     }
     if stage is not None:
         content["stage"] = stage
+    if failure is not None:
+        content["failure"] = failure
+    if upstream_status is not None:
+        content["upstream_status"] = upstream_status
     return JSONResponse(
         status_code=status_code,
         content=content,
@@ -517,6 +523,7 @@ async def start_conversation(
             "The translation service is temporarily unavailable. Please try again.",
             502,
             stage=stage,
+            failure="proxy_configuration",
         )
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
         upstream_status = (
@@ -524,6 +531,16 @@ async def start_conversation(
             if isinstance(error, httpx.HTTPStatusError)
             else None
         )
+        if isinstance(error, httpx.HTTPStatusError):
+            failure = "upstream_http_error"
+        elif isinstance(error, httpx.TimeoutException):
+            failure = "upstream_timeout"
+        elif isinstance(error, httpx.ConnectError):
+            failure = "upstream_connection_error"
+        elif isinstance(error, httpx.HTTPError):
+            failure = "upstream_request_error"
+        else:
+            failure = "invalid_upstream_response"
         logger.warning(
             "Dify conversation start failed at stage=%s exception=%s upstream_status=%s.",
             stage,
@@ -534,6 +551,8 @@ async def start_conversation(
             "The translation service is temporarily unavailable. Please try again.",
             502,
             stage=stage,
+            failure=failure,
+            upstream_status=upstream_status,
         )
 
 

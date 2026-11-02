@@ -87,6 +87,43 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 502)
         self.assertEqual(response.json()["stage"], "validate_session_id")
 
+    async def test_reports_dify_http_status_without_exposing_response_body(self) -> None:
+        request = httpx.Request("POST", "https://dify.test/v1/workflows/run")
+        upstream_response = httpx.Response(
+            401,
+            request=request,
+            text="sensitive upstream response",
+        )
+        error = httpx.HTTPStatusError(
+            "Unauthorized",
+            request=request,
+            response=upstream_response,
+        )
+        with (
+            patch.object(proxy, "_dify_base_url", return_value="https://dify.test/v1"),
+            patch.object(proxy, "_run_workflow", new=AsyncMock(side_effect=error)),
+        ):
+            response = await self.client.post(
+                "/api/conversation/start",
+                headers={"X-Device-Id": "a" * 32},
+                json={"lang_a": "English", "lang_b": "Arabic"},
+            )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(
+            response.json(),
+            {
+                "status_code": 502,
+                "error": "upstream_error",
+                "message": "The translation service is temporarily unavailable. Please try again.",
+                "status": "error",
+                "stage": "run_dify_workflow",
+                "failure": "upstream_http_error",
+                "upstream_status": 401,
+            },
+        )
+        self.assertNotIn("sensitive upstream response", response.text)
+
     async def test_normalizes_dify_turn_output_for_flutter(self) -> None:
         audio_bytes = b"\x01\x02\x03"
         outputs = {
