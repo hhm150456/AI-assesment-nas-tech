@@ -476,7 +476,6 @@ async def start_conversation(
                 "speaker": "A",
                 "lang_a": body.lang_a,
                 "lang_b": body.lang_b,
-                "audio": None,
                 "close_after": "no",
             },
             device_id=device_id,
