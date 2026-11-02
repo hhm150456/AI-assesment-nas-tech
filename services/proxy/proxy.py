@@ -399,6 +399,7 @@ async def translate(
     content, file_name, content_type = await _read_and_validate_audio(audio)
     api_base = _dify_base_url()
     api_key = _api_key("translate")
+    stage = "uploading audio to Dify"
     try:
         async with httpx.AsyncClient() as client:
             file_id = await _upload_to_dify(
@@ -410,6 +411,7 @@ async def translate(
                 api_base=api_base,
                 api_key=api_key,
             )
+            stage = "running the translation workflow"
             outputs = await _run_workflow(
                 workflow="translate",
                 inputs={
@@ -423,12 +425,15 @@ async def translate(
                 device_id=device_id,
                 api_base=api_base,
             )
+            stage = "validating the translation workflow output"
             message = _workflow_message(outputs, "success")
             if message:
                 return JSONResponse(content={"status": "error", "message": message})
+            stage = "downloading translated audio"
             audio_base64, audio_mime = await _download_audio(
                 outputs, api_base=api_base, api_key=api_key
             )
+        stage = "building the translation response"
         return JSONResponse(
             content={
                 "status": "success",
@@ -442,8 +447,12 @@ async def translate(
         )
     except HTTPException:
         raise
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):
-        logger.warning("Dify translation request failed.")
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
+        logger.warning(
+            "Dify translation request failed while %s (%s).",
+            stage,
+            type(error).__name__,
+        )
         return _proxy_error("The translation service is temporarily unavailable. Please try again.", 502)
 
 
