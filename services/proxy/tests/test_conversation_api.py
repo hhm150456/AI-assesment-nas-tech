@@ -52,7 +52,15 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             run.await_args.kwargs["inputs"],
-            {"action": "start", "lang_a": "English", "lang_b": "Bosnian"},
+            {
+                "action": "start",
+                "session_id": "",
+                "speaker": "A",
+                "lang_a": "English",
+                "lang_b": "Bosnian",
+                "audio": None,
+                "close_after": "no",
+            },
         )
 
     async def test_normalizes_dify_turn_output_for_flutter(self) -> None:

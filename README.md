@@ -28,7 +28,7 @@ The app never calls the bridge or Dify directly. The proxy uses:
 - `DIFY_KEY_TRANSLATE` — API key for the one-shot workflow app.
 - `DIFY_KEY_CONVERSATION` — API key for the conversation workflow app.
 
-`DIFY_KEY_TRANSLATE` and `DIFY_KEY_CONVERSATION` belong in the proxy host's secret environment variables. The imported Dify workflows separately need their `GROQ_API_KEY`, `OPENAI_KEY`, and `BRIDGE_KEY` secrets; `BRIDGE_URL` is the backend's public URL. Do not put keys in Flutter configuration, `.env` files, source control, or build arguments. `API_BASE_URL` is the backend's public URL and is not a secret. The Flutter app defaults to `https://ai-assesment-nas-tech-proxy.vercel.api`; change `apps/mobile/lib/core/config.dart` to update it, or pass `--dart-define=API_BASE_URL=<url>` to override it for a run or build.
+`DIFY_KEY_TRANSLATE` and `DIFY_KEY_CONVERSATION` belong in the proxy host's secret environment variables. The imported Dify workflows separately need their `GROQ_API_KEY`, `OPENAI_KEY`, and `BRIDGE_KEY` secrets; `BRIDGE_URL` is the backend's public URL. Do not put keys in Flutter configuration, `.env` files, source control, or build arguments. `API_BASE_URL` is the backend's public URL and is not a secret. The Flutter app defaults to `https://ai-assesment-nas-tech-proxy.vercel.app`; change `apps/mobile/lib/core/config.dart` to update it, or pass `--dart-define=API_BASE_URL=<url>` to override it for a run or build.
 
 The proxy and bridge routes are one service. Dify calls the service's `/sessions` endpoints with `X-API-Key` set to `BRIDGE_KEY`. The app does not need Firestore credentials or the bridge key.
 
@@ -120,7 +120,7 @@ The Dify exports are in [`workflows/`](./workflows/). The proxy calls one app fo
 | Workflow | Inputs | Required successful outputs |
 |---|---|---|
 | Translate | `audio` (Dify audio file object), `target_language` | Numeric 2xx TTS status in `status_code` or `status`, `translation`, `transcript`, `source_language`, `target_language`, `audio` (non-empty file array; first item must have a URL on the configured Dify API origin or a signed `https://upload.dify.ai/files/tools/` URL) |
-| Conversation `action: "start"` | `lang_a`, `lang_b` | `session_id`, `lang_a`, `lang_b`; the proxy normalizes Dify's status-less start End node to `status: "started"` |
+| Conversation `action: "start"` | `action: "start"`, empty `session_id`, `speaker: "A"`, `lang_a`, `lang_b`, `audio: null`, `close_after: "no"` | `session_id`, `lang_a`, `lang_b`; the proxy normalizes Dify's status-less start End node to `status: "started"` |
 | Conversation `action: "turn"` | `session_id`, `speaker` (`A` or `B`), `audio` (Dify audio file object) | `status` as a 2xx number (for example `200`) or `"success"`, `seq` (string or number, including `0`), `translation`, `transcript`, `speaker`, `source_lang`, `target_lang`, `audio` (as above) |
 | Conversation `action: "summary"` | `session_id`, `close_after` (`"yes"` or `"no"`), `lang_a`, `lang_b` | Numeric 2xx `status_code` (for example `200`), `summary_a`, `summary_b`, and `closed` matching the requested close state. |
 

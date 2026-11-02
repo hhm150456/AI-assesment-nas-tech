@@ -454,7 +454,15 @@ async def start_conversation(
     try:
         outputs = await _run_workflow(
             workflow="conversation",
-            inputs={"action": "start", "lang_a": body.lang_a, "lang_b": body.lang_b},
+            inputs={
+                "action": "start",
+                "session_id": "",
+                "speaker": "A",
+                "lang_a": body.lang_a,
+                "lang_b": body.lang_b,
+                "audio": None,
+                "close_after": "no",
+            },
             device_id=device_id,
             api_base=api_base,
         )
