@@ -74,7 +74,7 @@ The anonymous device ID is generated once and stored locally using `shared_prefe
 - `http` and `http_parser` for the shared JSON/multipart API client.
 - `record` and `permission_handler` for microphone capture and permission/settings handling.
 - `file_picker` for importing existing audio.
-- `audioplayers` and `path_provider` for playback from temporary files.
+- `audioplayers` for playback directly from audio bytes.
 - `shared_preferences` and `uuid` for a stable, random anonymous device ID.
 
 State is kept in the feature screens with Flutter's built-in stateful widgets; a separate state-management package would add little for this two-screen client.
@@ -242,7 +242,7 @@ The proxy returns `{ "status": "error", "message": "..." }` for both workflow-le
 - The in-memory rate limiter is process-local and resets on restart. Use a shared limiter when running multiple backend instances. Render free instances may restart or sleep while idle.
 - A timed-out conversation request may have completed upstream even though the client did not receive its response. The app prevents concurrent duplicate taps and preserves the same recording for retry, but the specified API has no idempotency key, so retrying an ambiguous timeout could create a second turn.
 - Audio decoder support varies by device and source format. If the device cannot decode a selected file, convert it to a supported format and retry.
-- The app keeps a selected audio clip in memory while it is in use. Temporary playback files are deleted when their playback widgets are removed.
+- The app keeps selected audio clips in memory while they are in use and passes the bytes directly to the audio player.
 
 ## Manual test checklist
 

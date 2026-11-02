@@ -1,11 +1,8 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:uuid/uuid.dart';
 
 class AudioPlaybackTile extends StatefulWidget {
   const AudioPlaybackTile({
@@ -31,7 +28,6 @@ class _AudioPlaybackTileState extends State<AudioPlaybackTile> {
   final _player = AudioPlayer();
   StreamSubscription<PlayerState>? _stateSubscription;
   StreamSubscription<Duration>? _durationSubscription;
-  String? _audioPath;
   Duration? _playerDuration;
   bool _isPlaying = false;
   bool _isLoading = false;
@@ -68,37 +64,7 @@ class _AudioPlaybackTileState extends State<AudioPlaybackTile> {
 
   Future<void> _resetSource() async {
     await _player.stop();
-    final path = _audioPath;
-    _audioPath = null;
     _playerDuration = null;
-    if (path != null) {
-      final file = File(path);
-      if (await file.exists()) {
-        await file.delete();
-      }
-    }
-  }
-
-  Future<String> _ensureAudioFile() async {
-    final existing = _audioPath;
-    if (existing != null) {
-      return existing;
-    }
-    final extension = switch (widget.mimeType.toLowerCase()) {
-      'audio/wav' || 'audio/x-wav' => 'wav',
-      'audio/mp4' || 'audio/x-m4a' => 'm4a',
-      'audio/ogg' || 'application/ogg' => 'ogg',
-      'audio/webm' => 'webm',
-      'audio/flac' || 'audio/x-flac' => 'flac',
-      _ => 'mp3',
-    };
-    final directory = await getTemporaryDirectory();
-    final file = File(
-      '${directory.path}${Platform.pathSeparator}playback-${const Uuid().v4()}.$extension',
-    );
-    await file.writeAsBytes(widget.audioBytes, flush: true);
-    _audioPath = file.path;
-    return file.path;
   }
 
   Future<void> _play() async {
@@ -110,8 +76,9 @@ class _AudioPlaybackTileState extends State<AudioPlaybackTile> {
       _error = null;
     });
     try {
-      final path = await _ensureAudioFile();
-      await _player.setSource(DeviceFileSource(path));
+      await _player.setSource(
+        BytesSource(widget.audioBytes, mimeType: widget.mimeType),
+      );
       await _player.resume();
     } on Exception {
       if (mounted) {
@@ -145,13 +112,6 @@ class _AudioPlaybackTileState extends State<AudioPlaybackTile> {
     await _stateSubscription?.cancel();
     await _durationSubscription?.cancel();
     await _player.dispose();
-    final path = _audioPath;
-    if (path != null) {
-      final file = File(path);
-      if (await file.exists()) {
-        await file.delete();
-      }
-    }
   }
 
   @override
