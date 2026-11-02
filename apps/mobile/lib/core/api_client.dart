@@ -103,16 +103,31 @@ class ApiClient {
 
   Future<ConversationSummary> getConversationSummary({
     required String sessionId,
+    required String speaker,
     required bool closeAfter,
     required String languageA,
     required String languageB,
+    required AudioClip audio,
   }) async {
-    final json = await _postJson('/api/conversation/summary', {
-      'session_id': sessionId,
-      'close_after': closeAfter ? 'yes' : 'no',
-      'lang_a': languageA,
-      'lang_b': languageB,
-    });
+    final validationError = validateAudioFile(
+      fileName: audio.fileName,
+      sizeBytes: audio.bytes.length,
+      contentType: audio.contentType,
+    );
+    if (validationError != null) {
+      throw ApiException(validationError);
+    }
+    final json = await _postMultipart(
+      '/api/conversation/summary',
+      fields: {
+        'session_id': sessionId,
+        'speaker': speaker,
+        'lang_a': languageA,
+        'lang_b': languageB,
+        'close_after': closeAfter ? 'yes' : 'no',
+      },
+      audio: audio,
+    );
     try {
       return ConversationSummary.fromJson(json);
     } on FormatException catch (error) {

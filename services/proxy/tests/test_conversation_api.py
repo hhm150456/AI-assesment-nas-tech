@@ -229,6 +229,12 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
         }
         with (
             patch.object(proxy, "_dify_base_url", return_value="https://dify.test/v1"),
+            patch.object(proxy, "_api_key", return_value="conversation-secret"),
+            patch.object(
+                proxy,
+                "_upload_to_dify",
+                new=AsyncMock(return_value="summary-upload-id"),
+            ) as upload,
             patch.object(
                 proxy, "_run_workflow", new=AsyncMock(return_value=outputs)
             ) as run,
@@ -236,12 +242,15 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
             response = await self.client.post(
                 "/api/conversation/summary",
                 headers={"X-Device-Id": "a" * 32},
-                json={
+                data={
+                    "action": "summary",
                     "session_id": "session12345",
-                    "close_after": "yes",
+                    "speaker": "A",
                     "lang_a": "English",
                     "lang_b": "Arabic",
+                    "close_after": "no",
                 },
+                files={"audio": ("voice.mp3", b"a" * 1024, "audio/mpeg")},
             )
 
         self.assertEqual(response.status_code, 200)
@@ -253,16 +262,26 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
                 "summary_b": outputs["summary_b"],
                 "lang_a": "English",
                 "lang_b": "Arabic",
-                "closed": "yes",
+                "closed": "no",
             },
+        )
+        self.assertEqual(
+            upload.await_args.kwargs["file_name"],
+            "voice.mp3",
         )
         self.assertEqual(
             run.await_args.kwargs["inputs"],
             {
                 "action": "summary",
                 "session_id": "session12345",
-                "close_after": "yes",
+                "speaker": "A",
                 "lang_a": "English",
                 "lang_b": "Arabic",
+                "audio": {
+                    "type": "audio",
+                    "transfer_method": "local_file",
+                    "upload_file_id": "summary-upload-id",
+                },
+                "close_after": "no",
             },
         )

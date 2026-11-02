@@ -27,6 +27,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
   ConversationSession? _session;
   ConversationSummary? _summary;
   AudioClip? _pendingClip;
+  AudioClip? _lastTurnAudioClip;
+  String? _lastTurnSpeaker;
   String _languageA = 'English';
   String _languageB = 'French';
   String? _pendingSpeaker;
@@ -71,6 +73,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
           _session = session;
           _turns.clear();
           _summary = null;
+          _lastTurnAudioClip = null;
+          _lastTurnSpeaker = null;
           _summaryError = null;
           _sessionUnavailable = false;
         });
@@ -270,6 +274,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
       if (mounted) {
         setState(() {
           _turns.add(result);
+          _lastTurnAudioClip = clip;
+          _lastTurnSpeaker = speaker;
           _pendingSpeaker = null;
           _pendingClip = null;
           _pendingError = null;
@@ -304,7 +310,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   Future<void> _showSummary({required bool closeAfter}) async {
     final session = _session;
-    if (session == null || _isSummaryProcessing || _hasPendingTurn) {
+    final audio = _lastTurnAudioClip;
+    final speaker = _lastTurnSpeaker;
+    if (session == null ||
+        audio == null ||
+        speaker == null ||
+        _isSummaryProcessing ||
+        _hasPendingTurn) {
       return;
     }
     setState(() {
@@ -314,9 +326,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
     try {
       final summary = await _api.getConversationSummary(
         sessionId: session.sessionId,
+        speaker: speaker,
         closeAfter: closeAfter,
         languageA: session.languageA,
         languageB: session.languageB,
+        audio: audio,
       );
       if (mounted) {
         setState(() {
@@ -381,6 +395,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
       _summary = null;
       _pendingClip = null;
       _pendingSpeaker = null;
+      _lastTurnAudioClip = null;
+      _lastTurnSpeaker = null;
       _pendingError = null;
       _setupError = null;
       _summaryError = null;
@@ -645,6 +661,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                       _isTurnProcessing ||
                           _isSummaryProcessing ||
                           _hasPendingTurn ||
+                          _lastTurnAudioClip == null ||
                           locked
                       ? null
                       : () => _showSummary(closeAfter: false),
@@ -662,6 +679,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                       _isTurnProcessing ||
                           _isSummaryProcessing ||
                           _hasPendingTurn ||
+                          _lastTurnAudioClip == null ||
                           locked
                       ? null
                       : () => _showSummary(closeAfter: true),

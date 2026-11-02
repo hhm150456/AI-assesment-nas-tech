@@ -99,13 +99,6 @@ class ConversationStartRequest(BaseModel):
     lang_b: str = Field(min_length=1, max_length=80)
 
 
-class ConversationSummaryRequest(BaseModel):
-    session_id: str
-    close_after: str
-    lang_a: str = Field(min_length=1, max_length=80)
-    lang_b: str = Field(min_length=1, max_length=80)
-
-
 def _configured(name: str) -> str:
     value = os.getenv(name, "").strip()
     if not value:
@@ -665,27 +658,57 @@ async def conversation_turn(
 
 @router.post("/conversation/summary")
 async def conversation_summary(
-    body: ConversationSummaryRequest,
     request: Request,
+    session_id: str = Form(...),
+    speaker: str = Form(...),
+    lang_a: str = Form(..., min_length=1, max_length=80),
+    lang_b: str = Form(..., min_length=1, max_length=80),
+    close_after: str = Form(...),
+    audio: UploadFile = File(...),
 ) -> JSONResponse:
     device_id = _device_id(request)
-    session_id = _session_id(body.session_id)
-    if body.close_after not in {"yes", "no"}:
-        raise HTTPException(status_code=400, detail="close_after must be yes or no.")
-    api_base = _dify_base_url()
-    try:
-        outputs = await _run_workflow(
-            workflow="conversation",
-            inputs={
-                "action": "summary",
-                "session_id": session_id,
-                "close_after": body.close_after,
-                "lang_a": body.lang_a,
-                "lang_b": body.lang_b,
-            },
-            device_id=device_id,
-            api_base=api_base,
+    session_id = _session_id(session_id)
+    if speaker not in {"A", "B"}:
+        raise HTTPException(status_code=400, detail="Choose participant A or B.")
+    if not lang_a.strip() or not lang_b.strip() or lang_a == lang_b:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide two different conversation languages.",
         )
+    if close_after not in {"yes", "no"}:
+        raise HTTPException(status_code=400, detail="close_after must be yes or no.")
+    content, file_name, content_type = await _read_and_validate_audio(audio)
+    api_base = _dify_base_url()
+    api_key = _api_key("conversation")
+    try:
+        async with httpx.AsyncClient() as client:
+            file_id = await _upload_to_dify(
+                client,
+                file_name=file_name,
+                content_type=content_type,
+                content=content,
+                device_id=device_id,
+                api_base=api_base,
+                api_key=api_key,
+            )
+            outputs = await _run_workflow(
+                workflow="conversation",
+                inputs={
+                    "action": "summary",
+                    "session_id": session_id,
+                    "speaker": speaker,
+                    "lang_a": lang_a,
+                    "lang_b": lang_b,
+                    "audio": {
+                        "type": "audio",
+                        "transfer_method": "local_file",
+                        "upload_file_id": file_id,
+                    },
+                    "close_after": close_after,
+                },
+                device_id=device_id,
+                api_base=api_base,
+            )
         message = _workflow_message(outputs, "success")
         if message:
             return JSONResponse(content={"status": "error", "message": message})
@@ -694,9 +717,9 @@ async def conversation_summary(
                 "status": "success",
                 "summary_a": _output_text(outputs, "summary_a"),
                 "summary_b": _output_text(outputs, "summary_b"),
-                "lang_a": body.lang_a,
-                "lang_b": body.lang_b,
-                "closed": body.close_after,
+                "lang_a": lang_a,
+                "lang_b": lang_b,
+                "closed": close_after,
             }
         )
     except HTTPException:
