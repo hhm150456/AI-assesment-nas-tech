@@ -56,8 +56,9 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
                 "action": "start",
                 "session_id": "",
                 "speaker": "A",
-                "lang_a": "English",
-                "lang_b": "Arabic",
+                "lang_a": "english",
+                "lang_b": "arabic",
+                "audio": None,
                 "close_after": "no",
             },
         )

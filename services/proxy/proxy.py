@@ -474,8 +474,9 @@ async def start_conversation(
                 "action": "start",
                 "session_id": "",
                 "speaker": "A",
-                "lang_a": body.lang_a,
-                "lang_b": body.lang_b,
+                "lang_a": body.lang_a.strip().lower(),
+                "lang_b": body.lang_b.strip().lower(),
+                "audio": None,
                 "close_after": "no",
             },
             device_id=device_id,
@@ -500,7 +501,10 @@ async def start_conversation(
         stage = "validate_languages"
         lang_a = _output_text(outputs, "lang_a")
         lang_b = _output_text(outputs, "lang_b")
-        if lang_a != body.lang_a or lang_b != body.lang_b:
+        if (
+            lang_a.strip().casefold() != body.lang_a.strip().casefold()
+            or lang_b.strip().casefold() != body.lang_b.strip().casefold()
+        ):
             raise ValueError("The workflow returned different conversation languages.")
         logger.info("Conversation start completed successfully.")
         return JSONResponse(
