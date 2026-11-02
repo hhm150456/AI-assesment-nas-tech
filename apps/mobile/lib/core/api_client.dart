@@ -38,13 +38,17 @@ class ApiClient {
     if (validationError != null) {
       throw ApiException(validationError);
     }
-    final json = await _postMultipart(
+    final response = await _sendMultipart(
       '/api/translate',
       fields: {'target_language': targetLanguage},
       audio: audio,
     );
+    _ensureSuccessful(response);
     try {
-      return TranslationResult.fromJson(json);
+      return TranslationResult.fromMultipartResponse(
+        body: response.bodyBytes,
+        contentType: response.headers['content-type'] ?? '',
+      );
     } on FormatException catch (error) {
       throw ApiException(error.message);
     }
@@ -146,24 +150,30 @@ class ApiClient {
     required Map<String, String> fields,
     required AudioClip audio,
   }) async {
-    final request = http.MultipartRequest('POST', _endpoint(path))
-      ..headers['X-Device-Id'] = await _deviceId()
-      ..fields.addAll(fields)
-      ..files.add(
-        http.MultipartFile.fromBytes(
-          'audio',
-          audio.bytes,
-          filename: audio.fileName,
-          contentType: MediaType.parse(audio.contentType),
-        ),
-      );
+    return _parseResponse(
+      await _sendMultipart(path, fields: fields, audio: audio),
+    );
+  }
 
+  Future<http.Response> _sendMultipart(
+    String path, {
+    required Map<String, String> fields,
+    required AudioClip audio,
+  }) async {
     try {
+      final request = http.MultipartRequest('POST', _endpoint(path))
+        ..headers['X-Device-Id'] = await _deviceId()
+        ..fields.addAll(fields)
+        ..files.add(
+          http.MultipartFile.fromBytes(
+            'audio',
+            audio.bytes,
+            filename: audio.fileName,
+            contentType: MediaType.parse(audio.contentType),
+          ),
+        );
       final streamed = await _client.send(request).timeout(requestTimeout);
-      final response = await http.Response.fromStream(
-        streamed,
-      ).timeout(requestTimeout);
-      return _parseResponse(response);
+      return await http.Response.fromStream(streamed).timeout(requestTimeout);
     } on ApiException {
       rethrow;
     } on TimeoutException {
@@ -184,6 +194,21 @@ class ApiClient {
   }
 
   Map<String, dynamic> _parseResponse(http.Response response) {
+    _ensureSuccessful(response);
+
+    final json = decodeJsonObject(response.body);
+    if (json['status'] == 'error') {
+      final message = json['message'];
+      throw ApiException(
+        message is String && message.trim().isNotEmpty
+            ? message.trim()
+            : 'The translation service could not process this request.',
+      );
+    }
+    return json;
+  }
+
+  void _ensureSuccessful(http.Response response) {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final message = switch (response.statusCode) {
         413 =>
@@ -197,17 +222,6 @@ class ApiClient {
       };
       throw ApiException(message);
     }
-
-    final json = decodeJsonObject(response.body);
-    if (json['status'] == 'error') {
-      final message = json['message'];
-      throw ApiException(
-        message is String && message.trim().isNotEmpty
-            ? message.trim()
-            : 'The translation service could not process this request.',
-      );
-    }
-    return json;
   }
 
   String? _errorMessage(String body) {

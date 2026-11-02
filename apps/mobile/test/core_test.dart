@@ -61,17 +61,35 @@ void main() {
     });
   });
 
-  test('parses a successful translation response and audio payload', () {
-    final result = TranslationResult.fromJson({
-      'status': 'success',
-      'translation': 'Bonjour',
-      'transcript': 'Hello',
-      'source_language': 'English',
-      'target_language': 'French',
-      'audio_base64': 'AQID',
-      'audio_mime': 'audio/mpeg',
-    });
+  test('parses translation metadata and raw audio from a multipart response', () {
+    const boundary = 'translation-boundary';
+    final metadata =
+        '''
+{"status_code":200,"translation":"Bonjour","transcript":"Hello","source_language":"English","target_language":"French"}
+'''
+            .trim();
+    final prefix =
+        '--$boundary\r\n'
+        'Content-Type: application/json; charset=utf-8\r\n'
+        'Content-Disposition: form-data; name="metadata"\r\n\r\n'
+        '$metadata\r\n'
+        '--$boundary\r\n'
+        'Content-Type: audio/mpeg\r\n'
+        'Content-Disposition: attachment; name="audio"; filename="translation.mp3"\r\n\r\n';
+    final body = Uint8List.fromList([
+      ...prefix.codeUnits,
+      1,
+      2,
+      3,
+      ...'\r\n--$boundary--\r\n'.codeUnits,
+    ]);
 
+    final result = TranslationResult.fromMultipartResponse(
+      body: body,
+      contentType: 'multipart/mixed; boundary="$boundary"',
+    );
+
+    expect(result.statusCode, 200);
     expect(result.translation, 'Bonjour');
     expect(result.transcript, 'Hello');
     expect(result.sourceLanguage, 'English');

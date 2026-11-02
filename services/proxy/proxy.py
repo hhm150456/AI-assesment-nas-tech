@@ -163,9 +163,10 @@ class ApiGuardMiddleware:
             return
 
         if not await rate_limiter.allow(_client_address(scope)):
-            response = JSONResponse(
-                status_code=429,
-                content={"status": "error", "message": "Too many requests. Please wait and try again."},
+            response = _proxy_error(
+                "Too many requests. Please wait and try again.",
+                429,
+                error="rate_limited",
             )
             await response(scope, receive, send)
             return
@@ -177,9 +178,10 @@ class ApiGuardMiddleware:
                 if int(content_length) > MAX_REQUEST_BYTES:
                     raise ValueError
             except ValueError:
-                response = JSONResponse(
-                    status_code=413,
-                    content={"status": "error", "message": "The audio upload is too large."},
+                response = _proxy_error(
+                    "The audio upload is too large.",
+                    413,
+                    error="audio_too_large",
                 )
                 await response(scope, receive, send)
                 return
@@ -195,9 +197,10 @@ class ApiGuardMiddleware:
                 continue
             size += len(message.get("body", b""))
             if size > MAX_REQUEST_BYTES:
-                response = JSONResponse(
-                    status_code=413,
-                    content={"status": "error", "message": "The audio upload is too large."},
+                response = _proxy_error(
+                    "The audio upload is too large.",
+                    413,
+                    error="audio_too_large",
                 )
                 await response(scope, receive, send)
                 return
@@ -297,7 +300,9 @@ async def _run_workflow(
     return outputs
 
 
-async def _download_audio(outputs: dict[str, Any], *, api_base: str, api_key: str) -> tuple[str, str]:
+async def _download_audio(
+    outputs: dict[str, Any], *, api_base: str, api_key: str
+) -> tuple[bytes, str]:
     files = outputs.get("audio")
     if not isinstance(files, list) or not files or not isinstance(files[0], dict):
         raise ValueError("The workflow did not return translated audio.")
@@ -324,11 +329,23 @@ async def _download_audio(outputs: dict[str, Any], *, api_base: str, api_key: st
         )
         response.raise_for_status()
     mime = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-    if not mime.startswith("audio/"):
+    mime = {
+        "audio/mp3": "audio/mpeg",
+        "audio/x-flac": "audio/flac",
+        "audio/x-wav": "audio/wav",
+    }.get(mime, mime)
+    if mime not in {
+        "audio/flac",
+        "audio/mp4",
+        "audio/mpeg",
+        "audio/ogg",
+        "audio/wav",
+        "audio/webm",
+    }:
         mime = "audio/mpeg"
     if not response.content:
         raise ValueError("The workflow returned an empty audio file.")
-    return base64.b64encode(response.content).decode("ascii"), mime
+    return response.content, mime
 
 
 async def _read_and_validate_audio(file: UploadFile) -> tuple[bytes, str, str]:
@@ -383,77 +400,27 @@ def _output_text(outputs: dict[str, Any], key: str) -> str:
     return value
 
 
-def _proxy_error(message: str, status_code: int) -> JSONResponse:
-    return JSONResponse(status_code=status_code, content={"status": "error", "message": message})
-
-
-@router.post("/translate")
-async def translate(
-    request: Request,
-    audio: UploadFile = File(...),
-    target_language: str = Form(...),
+def _proxy_error(
+    message: str, status_code: int, *, error: str | None = None
 ) -> JSONResponse:
-    device_id = _device_id(request)
-    if not target_language.strip() or len(target_language) > 80:
-        raise HTTPException(status_code=400, detail="Choose a target language.")
-    content, file_name, content_type = await _read_and_validate_audio(audio)
-    api_base = _dify_base_url()
-    api_key = _api_key("translate")
-    stage = "uploading audio to Dify"
-    try:
-        async with httpx.AsyncClient() as client:
-            file_id = await _upload_to_dify(
-                client,
-                file_name=file_name,
-                content_type=content_type,
-                content=content,
-                device_id=device_id,
-                api_base=api_base,
-                api_key=api_key,
-            )
-            stage = "running the translation workflow"
-            outputs = await _run_workflow(
-                workflow="translate",
-                inputs={
-                    "audio": {
-                        "type": "audio",
-                        "transfer_method": "local_file",
-                        "upload_file_id": file_id,
-                    },
-                    "target_language": target_language.strip(),
-                },
-                device_id=device_id,
-                api_base=api_base,
-            )
-            stage = "validating the translation workflow output"
-            message = _workflow_message(outputs, "success")
-            if message:
-                return JSONResponse(content={"status": "error", "message": message})
-            stage = "downloading translated audio"
-            audio_base64, audio_mime = await _download_audio(
-                outputs, api_base=api_base, api_key=api_key
-            )
-        stage = "building the translation response"
-        return JSONResponse(
-            content={
-                "status": "success",
-                "translation": _output_text(outputs, "translation"),
-                "transcript": _output_text(outputs, "transcript"),
-                "source_language": _output_text(outputs, "source_language"),
-                "target_language": _output_text(outputs, "target_language"),
-                "audio_base64": audio_base64,
-                "audio_mime": audio_mime,
-            }
-        )
-    except HTTPException:
-        raise
-    except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
-        logger.warning(
-            "Dify translation request failed while %s (%s).",
-            stage,
-            type(error).__name__,
-        )
-        return _proxy_error("The translation service is temporarily unavailable. Please try again.", 502)
+    if error is None:
+        error = {
+            400: "invalid_request",
+            413: "audio_too_large",
+            429: "rate_limited",
+            502: "upstream_error",
+            503: "service_unavailable",
+        }.get(status_code, "request_failed")
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status_code": status_code,
+            "error": error,
+            "message": message,
+            "status": "error",
+        },
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.post("/conversation/start")
@@ -536,7 +503,7 @@ async def conversation_turn(
             message = _workflow_message(outputs, "success")
             if message:
                 return JSONResponse(content={"status": "error", "message": message})
-            audio_base64, audio_mime = await _download_audio(
+            translated_audio, audio_mime = await _download_audio(
                 outputs, api_base=api_base, api_key=api_key
             )
             sequence = outputs.get("seq")
@@ -551,7 +518,7 @@ async def conversation_turn(
                 "source_lang": _output_text(outputs, "source_lang"),
                 "target_lang": _output_text(outputs, "target_lang"),
                 "seq": sequence,
-                "audio_base64": audio_base64,
+                "audio_base64": base64.b64encode(translated_audio).decode("ascii"),
                 "audio_mime": audio_mime,
             }
         )
@@ -622,8 +589,19 @@ def configure_proxy_app(app: FastAPI) -> None:
         message = exc.detail if isinstance(exc.detail, str) else "The request is invalid."
         return JSONResponse(
             status_code=exc.status_code,
-            content={"status": "error", "message": message},
-            headers=exc.headers,
+            content={
+                "status_code": exc.status_code,
+                "error": {
+                    400: "invalid_request",
+                    413: "audio_too_large",
+                    429: "rate_limited",
+                    502: "upstream_error",
+                    503: "service_unavailable",
+                }.get(exc.status_code, "request_failed"),
+                "message": message,
+                "status": "error",
+            },
+            headers={**(exc.headers or {}), "Cache-Control": "no-store"},
         )
 
     @app.exception_handler(RequestValidationError)

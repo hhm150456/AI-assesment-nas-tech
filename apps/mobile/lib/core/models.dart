@@ -44,8 +44,51 @@ Uint8List _audioBytes(Map<String, dynamic> json) {
   }
 }
 
+int _indexOfBytes(List<int> source, List<int> pattern, int start) {
+  for (var index = start; index <= source.length - pattern.length; index++) {
+    var match = true;
+    for (var offset = 0; offset < pattern.length; offset++) {
+      if (source[index + offset] != pattern[offset]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+bool _matchesBytes(List<int> source, List<int> pattern, int start) {
+  if (start < 0 || start + pattern.length > source.length) {
+    return false;
+  }
+  for (var offset = 0; offset < pattern.length; offset++) {
+    if (source[start + offset] != pattern[offset]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+Map<String, String> _multipartHeaders(Uint8List bytes) {
+  final headers = <String, String>{};
+  for (final line in ascii.decode(bytes).split('\r\n')) {
+    final separator = line.indexOf(':');
+    if (separator <= 0) {
+      throw const FormatException('The server returned an invalid response.');
+    }
+    headers[line.substring(0, separator).trim().toLowerCase()] = line
+        .substring(separator + 1)
+        .trim();
+  }
+  return headers;
+}
+
 class TranslationResult {
   const TranslationResult({
+    required this.statusCode,
     required this.translation,
     required this.transcript,
     required this.sourceLanguage,
@@ -54,6 +97,7 @@ class TranslationResult {
     required this.audioMime,
   });
 
+  final int statusCode;
   final String translation;
   final String transcript;
   final String sourceLanguage;
@@ -61,17 +105,98 @@ class TranslationResult {
   final Uint8List audioBytes;
   final String audioMime;
 
-  factory TranslationResult.fromJson(Map<String, dynamic> json) {
-    if (json['status'] != 'success') {
+  factory TranslationResult.fromMultipartResponse({
+    required Uint8List body,
+    required String contentType,
+  }) {
+    final boundaryMatch = RegExp(
+      r'(?:^|;)\s*boundary=(?:"([^"]+)"|([^;]+))',
+      caseSensitive: false,
+    ).firstMatch(contentType);
+    final boundary = (boundaryMatch?.group(1) ?? boundaryMatch?.group(2))
+        ?.trim();
+    if (boundary == null || boundary.isEmpty) {
+      throw const FormatException('The server returned an invalid response.');
+    }
+
+    final initialBoundary = ascii.encode('--$boundary\r\n');
+    if (!_matchesBytes(body, initialBoundary, 0)) {
+      throw const FormatException('The server returned an invalid response.');
+    }
+    final headerSeparator = <int>[13, 10, 13, 10];
+    final nextBoundary = ascii.encode('\r\n--$boundary');
+    var cursor = initialBoundary.length;
+    Uint8List? metadataBytes;
+    Uint8List? audioBytes;
+    String? audioMime;
+
+    for (var part = 0; part < 2; part++) {
+      final headersEnd = _indexOfBytes(body, headerSeparator, cursor);
+      if (headersEnd < 0) {
+        throw const FormatException('The server returned an invalid response.');
+      }
+      final headers = _multipartHeaders(body.sublist(cursor, headersEnd));
+      final disposition = headers['content-disposition'] ?? '';
+      final name = RegExp(r'name="([^"]+)"').firstMatch(disposition)?.group(1);
+      final partContentType = headers['content-type']?.split(';').first.trim();
+      final dataStart = headersEnd + headerSeparator.length;
+      final dataEnd = _indexOfBytes(body, nextBoundary, dataStart);
+      if (dataEnd < 0) {
+        throw const FormatException('The server returned an invalid response.');
+      }
+      final partBytes = Uint8List.fromList(body.sublist(dataStart, dataEnd));
+      if (name == 'metadata' &&
+          partContentType?.toLowerCase() == 'application/json' &&
+          metadataBytes == null) {
+        metadataBytes = partBytes;
+      } else if (name == 'audio' &&
+          partContentType?.toLowerCase().startsWith('audio/') == true &&
+          audioBytes == null) {
+        audioBytes = partBytes;
+        audioMime = partContentType!.toLowerCase();
+      } else {
+        throw const FormatException('The server returned an invalid response.');
+      }
+
+      final boundaryEnd = dataEnd + nextBoundary.length;
+      if (part == 0) {
+        if (!_matchesBytes(body, <int>[13, 10], boundaryEnd)) {
+          throw const FormatException(
+            'The server returned an invalid response.',
+          );
+        }
+        cursor = boundaryEnd + 2;
+      } else if (!_matchesBytes(body, <int>[45, 45, 13, 10], boundaryEnd) ||
+          boundaryEnd + 4 != body.length) {
+        throw const FormatException('The server returned an invalid response.');
+      }
+    }
+
+    final metadataContent = metadataBytes;
+    final audioContent = audioBytes;
+    final mime = audioMime;
+    if (metadataContent == null ||
+        audioContent == null ||
+        audioContent.isEmpty ||
+        mime == null) {
+      throw const FormatException('The server returned an invalid response.');
+    }
+    final decoded = jsonDecode(utf8.decode(metadataContent));
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('The server returned an invalid response.');
+    }
+    final statusCode = decoded['status_code'];
+    if (statusCode is! int || statusCode != 200) {
       throw const FormatException('The server returned an invalid response.');
     }
     return TranslationResult(
-      translation: _requiredString(json, 'translation'),
-      transcript: _requiredString(json, 'transcript'),
-      sourceLanguage: _requiredString(json, 'source_language'),
-      targetLanguage: _requiredString(json, 'target_language'),
-      audioBytes: _audioBytes(json),
-      audioMime: _requiredString(json, 'audio_mime'),
+      statusCode: statusCode,
+      translation: _requiredString(decoded, 'translation'),
+      transcript: _requiredString(decoded, 'transcript'),
+      sourceLanguage: _requiredString(decoded, 'source_language'),
+      targetLanguage: _requiredString(decoded, 'target_language'),
+      audioBytes: audioContent,
+      audioMime: mime,
     );
   }
 }
