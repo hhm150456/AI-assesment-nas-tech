@@ -420,7 +420,11 @@ def _output_text(outputs: dict[str, Any], key: str) -> str:
 
 
 def _proxy_error(
-    message: str, status_code: int, *, error: str | None = None
+    message: str,
+    status_code: int,
+    *,
+    error: str | None = None,
+    stage: str | None = None,
 ) -> JSONResponse:
     if error is None:
         error = {
@@ -430,14 +434,17 @@ def _proxy_error(
             502: "upstream_error",
             503: "service_unavailable",
         }.get(status_code, "request_failed")
+    content = {
+        "status_code": status_code,
+        "error": error,
+        "message": message,
+        "status": "error",
+    }
+    if stage is not None:
+        content["stage"] = stage
     return JSONResponse(
         status_code=status_code,
-        content={
-            "status_code": status_code,
-            "error": error,
-            "message": message,
-            "status": "error",
-        },
+        content=content,
         headers={"Cache-Control": "no-store"},
     )
 
@@ -450,8 +457,11 @@ async def start_conversation(
     device_id = _device_id(request)
     if body.lang_a == body.lang_b:
         raise HTTPException(status_code=400, detail="Choose two different languages.")
-    api_base = _dify_base_url()
+    stage = "resolve_dify_config"
+    logger.info("Received conversation start request.")
     try:
+        api_base = _dify_base_url()
+        stage = "run_dify_workflow"
         outputs = await _run_workflow(
             workflow="conversation",
             inputs={
@@ -466,6 +476,11 @@ async def start_conversation(
             device_id=device_id,
             api_base=api_base,
         )
+        stage = "validate_workflow_result"
+        logger.info(
+            "Dify conversation start returned output keys: %s",
+            sorted(outputs),
+        )
         message = (
             _workflow_message(outputs, "started")
             if "status" in outputs or "status_code" in outputs
@@ -473,13 +488,16 @@ async def start_conversation(
         )
         if message:
             return JSONResponse(content={"status": "error", "message": message})
+        stage = "validate_session_id"
         session_id = outputs.get("session_id")
         if not isinstance(session_id, str) or not SESSION_ID_PATTERN.fullmatch(session_id):
             raise ValueError("The workflow returned an invalid conversation id.")
+        stage = "validate_languages"
         lang_a = _output_text(outputs, "lang_a")
         lang_b = _output_text(outputs, "lang_b")
         if lang_a != body.lang_a or lang_b != body.lang_b:
             raise ValueError("The workflow returned different conversation languages.")
+        logger.info("Conversation start completed successfully.")
         return JSONResponse(
             content={
                 "status": "started",
@@ -488,11 +506,35 @@ async def start_conversation(
                 "lang_b": lang_b,
             }
         )
-    except HTTPException:
-        raise
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):
-        logger.warning("Dify conversation start request failed.")
-        return _proxy_error("The translation service is temporarily unavailable. Please try again.", 502)
+    except HTTPException as error:
+        if error.status_code != 502:
+            raise
+        logger.warning(
+            "Dify conversation start failed at stage=%s exception=HTTPException.",
+            stage,
+        )
+        return _proxy_error(
+            "The translation service is temporarily unavailable. Please try again.",
+            502,
+            stage=stage,
+        )
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
+        upstream_status = (
+            error.response.status_code
+            if isinstance(error, httpx.HTTPStatusError)
+            else None
+        )
+        logger.warning(
+            "Dify conversation start failed at stage=%s exception=%s upstream_status=%s.",
+            stage,
+            type(error).__name__,
+            upstream_status,
+        )
+        return _proxy_error(
+            "The translation service is temporarily unavailable. Please try again.",
+            502,
+            stage=stage,
+        )
 
 
 @router.post("/conversation/turn")

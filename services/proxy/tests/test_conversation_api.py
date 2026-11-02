@@ -24,9 +24,9 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_normalizes_dify_start_output_without_status(self) -> None:
         outputs = {
-            "session_id": "09tJVYMfCKFHuSAtwTxc",
+            "session_id": "LqB6zhnmtf18Fn7fX7Hx",
             "lang_a": "English",
-            "lang_b": "Bosnian",
+            "lang_b": "Arabic",
         }
         with (
             patch.object(proxy, "_dify_base_url", return_value="https://dify.test/v1"),
@@ -37,7 +37,7 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
             response = await self.client.post(
                 "/api/conversation/start",
                 headers={"X-Device-Id": "a" * 32},
-                json={"lang_a": "English", "lang_b": "Bosnian"},
+                json={"lang_a": "English", "lang_b": "Arabic"},
             )
 
         self.assertEqual(response.status_code, 200)
@@ -45,9 +45,9 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
             response.json(),
             {
                 "status": "started",
-                "session_id": "09tJVYMfCKFHuSAtwTxc",
+                "session_id": "LqB6zhnmtf18Fn7fX7Hx",
                 "lang_a": "English",
-                "lang_b": "Bosnian",
+                "lang_b": "Arabic",
             },
         )
         self.assertEqual(
@@ -57,11 +57,35 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
                 "session_id": "",
                 "speaker": "A",
                 "lang_a": "English",
-                "lang_b": "Bosnian",
+                "lang_b": "Arabic",
                 "audio": None,
                 "close_after": "no",
             },
         )
+
+    async def test_reports_validation_stage_for_invalid_dify_session_id(self) -> None:
+        with (
+            patch.object(proxy, "_dify_base_url", return_value="https://dify.test/v1"),
+            patch.object(
+                proxy,
+                "_run_workflow",
+                new=AsyncMock(
+                    return_value={
+                        "session_id": "short",
+                        "lang_a": "English",
+                        "lang_b": "Arabic",
+                    }
+                ),
+            ),
+        ):
+            response = await self.client.post(
+                "/api/conversation/start",
+                headers={"X-Device-Id": "a" * 32},
+                json={"lang_a": "English", "lang_b": "Arabic"},
+            )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json()["stage"], "validate_session_id")
 
     async def test_normalizes_dify_turn_output_for_flutter(self) -> None:
         audio_bytes = b"\x01\x02\x03"
