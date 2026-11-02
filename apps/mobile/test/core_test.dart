@@ -125,14 +125,14 @@ void main() {
   test('parses a normalized Dify conversation start', () {
     final result = ConversationSession.fromJson({
       'status': 'started',
-      'session_id': 'session12345',
+      'session_id': '09tJVYMfCKFHuSAtwTxc',
       'lang_a': 'English',
-      'lang_b': 'Arabic',
+      'lang_b': 'Bosnian',
     });
 
-    expect(result.sessionId, 'session12345');
+    expect(result.sessionId, '09tJVYMfCKFHuSAtwTxc');
     expect(result.languageA, 'English');
-    expect(result.languageB, 'Arabic');
+    expect(result.languageB, 'Bosnian');
   });
 
   test('parses a normalized Dify conversation summary', () {

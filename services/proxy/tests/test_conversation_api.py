@@ -24,9 +24,9 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_normalizes_dify_start_output_without_status(self) -> None:
         outputs = {
-            "session_id": "session12345",
+            "session_id": "09tJVYMfCKFHuSAtwTxc",
             "lang_a": "English",
-            "lang_b": "Arabic",
+            "lang_b": "Bosnian",
         }
         with (
             patch.object(proxy, "_dify_base_url", return_value="https://dify.test/v1"),
@@ -37,7 +37,7 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
             response = await self.client.post(
                 "/api/conversation/start",
                 headers={"X-Device-Id": "a" * 32},
-                json={"lang_a": "English", "lang_b": "Arabic"},
+                json={"lang_a": "English", "lang_b": "Bosnian"},
             )
 
         self.assertEqual(response.status_code, 200)
@@ -45,14 +45,14 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
             response.json(),
             {
                 "status": "started",
-                "session_id": "session12345",
+                "session_id": "09tJVYMfCKFHuSAtwTxc",
                 "lang_a": "English",
-                "lang_b": "Arabic",
+                "lang_b": "Bosnian",
             },
         )
         self.assertEqual(
             run.await_args.kwargs["inputs"],
-            {"action": "start", "lang_a": "English", "lang_b": "Arabic"},
+            {"action": "start", "lang_a": "English", "lang_b": "Bosnian"},
         )
 
     async def test_normalizes_dify_turn_output_for_flutter(self) -> None:
