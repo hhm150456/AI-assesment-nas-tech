@@ -217,16 +217,14 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_normalizes_dify_summary_output_for_flutter(self) -> None:
         outputs = {
             "status_code": 200,
-            "closed": "yes",
             "summary_a": (
-                "Participant A mentioned that the recording is in English. "
-                "Participant B acknowledged this in Arabic. No decisions or "
-                "agreements were made during the conversation."
+                "Participant A stated that the recording is in English. "
+                "Participant B confirmed this in Chinese. No further details "
+                "or decisions were made during the conversation."
             ),
             "summary_b": (
-                "المشارك أ ذكر أن التسجيل باللغة الإنجليزية. "
-                "المشارك ب أقر بذلك بالعربية. "
-                "لم يتم اتخاذ أي قرارات أو اتفاقات خلال المحادثة."
+                "参与者A表示录音是英语。参与者B用中文确认了这一点。"
+                "对话中没有进一步的细节或决定。"
             ),
         }
         with (

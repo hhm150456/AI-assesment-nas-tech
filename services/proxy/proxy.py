@@ -689,9 +689,6 @@ async def conversation_summary(
         message = _workflow_message(outputs, "success")
         if message:
             return JSONResponse(content={"status": "error", "message": message})
-        closed = _output_text(outputs, "closed")
-        if closed != body.close_after:
-            raise ValueError("The workflow returned an invalid closed status.")
         return JSONResponse(
             content={
                 "status": "success",
@@ -699,7 +696,7 @@ async def conversation_summary(
                 "summary_b": _output_text(outputs, "summary_b"),
                 "lang_a": body.lang_a,
                 "lang_b": body.lang_b,
-                "closed": closed,
+                "closed": body.close_after,
             }
         )
     except HTTPException:
