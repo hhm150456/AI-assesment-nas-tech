@@ -361,13 +361,18 @@ def _workflow_message(outputs: dict[str, Any], expected_status: str) -> str | No
         return "The translation service could not process this request. Please try again."
     if status == expected_status:
         return None
+    status_code = outputs.get("status_code", status)
     if (
         expected_status == "success"
-        and isinstance(status, int)
-        and not isinstance(status, bool)
-        and 200 <= status < 300
+        and isinstance(status_code, int)
+        and not isinstance(status_code, bool)
     ):
-        return None
+        if 200 <= status_code < 300:
+            return None
+        message = outputs.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()[:500]
+        return "The translation service could not process this request. Please try again."
     raise ValueError("The workflow returned an invalid status.")
 
 
