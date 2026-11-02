@@ -33,16 +33,22 @@ _AUDIO_EXTENSIONS = {
 }
 
 
-def _error_response(status_code: int, error: str, message: str) -> JSONResponse:
+def _error_response(
+    status_code: int, error: str, message: str, *, request_id: str
+) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
         content={"status_code": status_code, "error": error, "message": message},
-        headers={"Cache-Control": "no-store"},
+        headers={"Cache-Control": "no-store", "X-Request-ID": request_id},
     )
 
 
 def _file_response(
-    metadata: dict[str, object], audio: bytes, audio_mime: str
+    metadata: dict[str, object],
+    audio: bytes,
+    audio_mime: str,
+    *,
+    request_id: str,
 ) -> Response:
     boundary = f"voice-translate-{uuid4().hex}"
     extension = _AUDIO_EXTENSIONS.get(audio_mime, "mp3")
@@ -73,6 +79,7 @@ def _file_response(
         headers={
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
+            "X-Request-ID": request_id,
         },
     )
 
@@ -128,17 +135,37 @@ async def translate(
             api_base=api_base,
         )
         workflow_status = outputs.get("status_code")
-        if outputs.get("status") == "error" or not (
+        if workflow_status is None:
+            workflow_status = outputs.get("status")
+        status_code_success = (
             isinstance(workflow_status, int)
             and not isinstance(workflow_status, bool)
             and 200 <= workflow_status < 300
+        )
+        legacy_success = (
+            workflow_status is None and outputs.get("status") == "success"
+        )
+        if outputs.get("status") == "error" or not (
+            status_code_success or legacy_success
         ):
+            log_status = (
+                workflow_status
+                if workflow_status is not None
+                else outputs.get("status")
+            )
             logger.warning(
-                "Translation workflow failed request_id=%s stage=%s",
+                "Translation workflow failed "
+                "request_id=%s stage=%s workflow_status=%s",
                 request_id,
                 stage,
+                log_status,
             )
-            return _error_response(502, "translation_failed", _ERROR_MESSAGE)
+            return _error_response(
+                502,
+                "translation_failed",
+                _ERROR_MESSAGE,
+                request_id=request_id,
+            )
 
         stage = "validating workflow output"
         metadata: dict[str, object] = {
@@ -162,8 +189,14 @@ async def translate(
                 502,
                 "translation_failed",
                 "The translation service returned an audio file that is too large.",
+                request_id=request_id,
             )
-        result = _file_response(metadata, translated_audio, audio_mime)
+        result = _file_response(
+            metadata,
+            translated_audio,
+            audio_mime,
+            request_id=request_id,
+        )
         logger.info(
             "Translation request completed "
             "request_id=%s status_code=200 audio_bytes=%d duration_ms=%d",
@@ -189,14 +222,25 @@ async def translate(
             if isinstance(error.detail, str)
             else "The request could not be processed."
         )
-        return _error_response(error.status_code, code, message)
+        return _error_response(
+            error.status_code,
+            code,
+            message,
+            request_id=request_id,
+        )
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
         logger.warning(
             "Translation request failed "
-            "request_id=%s stage=%s error_type=%s duration_ms=%d",
+            "request_id=%s stage=%s error_type=%s upstream_status=%s duration_ms=%d",
             request_id,
             stage,
             type(error).__name__,
+            getattr(getattr(error, "response", None), "status_code", None),
             int((time.monotonic() - started_at) * 1000),
         )
-        return _error_response(502, "translation_failed", _ERROR_MESSAGE)
+        return _error_response(
+            502,
+            "translation_failed",
+            _ERROR_MESSAGE,
+            request_id=request_id,
+        )

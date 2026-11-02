@@ -8,7 +8,7 @@ import time
 from collections import deque
 from pathlib import PurePosixPath
 from typing import Any
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 import httpx
 from fastapi import APIRouter, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -313,18 +313,35 @@ async def _download_audio(
     resolved_url = urljoin(f"{api_base}/", file_url)
     base = urlsplit(api_base)
     target = urlsplit(resolved_url)
+    is_api_origin = (
+        target.scheme == base.scheme
+        and target.netloc.lower() == base.netloc.lower()
+    )
+    is_signed_dify_tool_file = (
+        target.scheme == "https"
+        and target.hostname is not None
+        and target.hostname.lower() == "upload.dify.ai"
+        and target.port in (None, 443)
+        and target.path.startswith("/files/tools/")
+        and {"timestamp", "nonce", "sign"}.issubset(parse_qs(target.query))
+    )
     if (
-        target.scheme != base.scheme
-        or target.netloc.lower() != base.netloc.lower()
-        or target.username
+        target.username
         or target.password
+        or target.fragment
+        or not (is_api_origin or is_signed_dify_tool_file)
     ):
         raise ValueError("The workflow returned an unsupported audio location.")
 
+    headers = (
+        {"Authorization": f"Bearer {api_key}"}
+        if is_api_origin
+        else {}
+    )
     async with httpx.AsyncClient() as client:
         response = await client.get(
             resolved_url,
-            headers={"Authorization": f"Bearer {api_key}"},
+            headers=headers,
             timeout=httpx.Timeout(60.0),
         )
         response.raise_for_status()
