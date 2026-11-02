@@ -37,7 +37,7 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
             response = await self.client.post(
                 "/api/conversation/start",
                 headers={"X-Device-Id": "a" * 32},
-                json={"lang_a": "English", "lang_b": "Arabic"},
+                json={"lang_a": "Arabic", "lang_b": "Catalan"},
             )
 
         self.assertEqual(response.status_code, 200)
@@ -56,8 +56,8 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
                 "action": "start",
                 "session_id": "",
                 "speaker": "A",
-                "lang_a": "english",
-                "lang_b": "arabic",
+                "lang_a": "Arabic",
+                "lang_b": "Catalan",
                 "audio": None,
                 "close_after": "no",
             },
@@ -92,7 +92,11 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
         upstream_response = httpx.Response(
             401,
             request=request,
-            text="sensitive upstream response",
+            json={
+                "code": "invalid_api_token",
+                "message": "The API token is invalid.",
+                "detail": "sensitive upstream response",
+            },
         )
         error = httpx.HTTPStatusError(
             "Unauthorized",
@@ -120,6 +124,8 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
                 "stage": "run_dify_workflow",
                 "failure": "upstream_http_error",
                 "upstream_status": 401,
+                "upstream_code": "invalid_api_token",
+                "upstream_message": "The API token is invalid.",
             },
         )
         self.assertNotIn("sensitive upstream response", response.text)

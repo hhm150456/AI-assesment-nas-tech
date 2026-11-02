@@ -427,6 +427,8 @@ def _proxy_error(
     stage: str | None = None,
     failure: str | None = None,
     upstream_status: int | None = None,
+    upstream_code: str | None = None,
+    upstream_message: str | None = None,
 ) -> JSONResponse:
     if error is None:
         error = {
@@ -448,6 +450,10 @@ def _proxy_error(
         content["failure"] = failure
     if upstream_status is not None:
         content["upstream_status"] = upstream_status
+    if upstream_code is not None:
+        content["upstream_code"] = upstream_code
+    if upstream_message is not None:
+        content["upstream_message"] = upstream_message
     return JSONResponse(
         status_code=status_code,
         content=content,
@@ -474,8 +480,8 @@ async def start_conversation(
                 "action": "start",
                 "session_id": "",
                 "speaker": "A",
-                "lang_a": body.lang_a.strip().lower(),
-                "lang_b": body.lang_b.strip().lower(),
+                "lang_a": body.lang_a,
+                "lang_b": body.lang_b,
                 "audio": None,
                 "close_after": "no",
             },
@@ -501,11 +507,8 @@ async def start_conversation(
         stage = "validate_languages"
         lang_a = _output_text(outputs, "lang_a")
         lang_b = _output_text(outputs, "lang_b")
-        if (
-            lang_a.strip().casefold() != body.lang_a.strip().casefold()
-            or lang_b.strip().casefold() != body.lang_b.strip().casefold()
-        ):
-            raise ValueError("The workflow returned different conversation languages.")
+        if not lang_a.strip() or not lang_b.strip():
+            raise ValueError("The workflow returned empty conversation languages.")
         logger.info("Conversation start completed successfully.")
         return JSONResponse(
             content={
@@ -534,6 +537,20 @@ async def start_conversation(
             if isinstance(error, httpx.HTTPStatusError)
             else None
         )
+        upstream_code = None
+        upstream_message = None
+        if isinstance(error, httpx.HTTPStatusError):
+            try:
+                upstream_body = error.response.json()
+            except ValueError:
+                upstream_body = None
+            if isinstance(upstream_body, dict):
+                code = upstream_body.get("code")
+                message = upstream_body.get("message")
+                if isinstance(code, str) and code.strip():
+                    upstream_code = code.strip()[:100]
+                if isinstance(message, str) and message.strip():
+                    upstream_message = message.strip()[:500]
         if isinstance(error, httpx.HTTPStatusError):
             failure = "upstream_http_error"
         elif isinstance(error, httpx.TimeoutException):
@@ -550,12 +567,20 @@ async def start_conversation(
             type(error).__name__,
             upstream_status,
         )
+        if upstream_code or upstream_message:
+            logger.warning(
+                "Dify conversation start upstream error code=%s message=%s.",
+                upstream_code,
+                upstream_message,
+            )
         return _proxy_error(
             "The translation service is temporarily unavailable. Please try again.",
             502,
             stage=stage,
             failure=failure,
             upstream_status=upstream_status,
+            upstream_code=upstream_code,
+            upstream_message=upstream_message,
         )
 
 

@@ -120,11 +120,13 @@ The Dify exports are in [`workflows/`](./workflows/). The proxy calls one app fo
 | Workflow | Inputs | Required successful outputs |
 |---|---|---|
 | Translate | `audio` (Dify audio file object), `target_language` | Numeric 2xx TTS status in `status_code` or `status`, `translation`, `transcript`, `source_language`, `target_language`, `audio` (non-empty file array; first item must have a URL on the configured Dify API origin or a signed `https://upload.dify.ai/files/tools/` URL) |
-| Conversation `action: "start"` | `action: "start"`, empty `session_id`, `speaker: "A"`, lowercase `lang_a` and `lang_b`, `audio: null`, `close_after: "no"` | `session_id`, `lang_a`, `lang_b`; the proxy normalizes Dify's status-less start End node to `status: "started"` |
+| Conversation `action: "start"` | `action: "start"`, empty `session_id`, `speaker: "A"`, `lang_a` and `lang_b` selected from the same 57-language list as Flutter (preserving their display casing), `audio: null`, `close_after: "no"` | `session_id`, `lang_a`, `lang_b`; the proxy normalizes Dify's status-less start End node to `status: "started"` |
 | Conversation `action: "turn"` | `session_id`, `speaker` (`A` or `B`), `audio` (Dify audio file object) | `status` as a 2xx number (for example `200`) or `"success"`, `seq` (string or number, including `0`), `translation`, `transcript`, `speaker`, `source_lang`, `target_lang`, `audio` (as above) |
 | Conversation `action: "summary"` | `session_id`, `close_after` (`"yes"` or `"no"`), `lang_a`, `lang_b` | Numeric 2xx `status_code` (for example `200`), `summary_a`, `summary_b`, and `closed` matching the requested close state. |
 
 For translation workflow-level failures, the proxy converts Dify failures to a generic, user-safe JSON error response; Dify does not need to return an error message. The proxy uploads source audio to Dify, runs the workflow with the requested target language, and fetches generated audio from the configured Dify origin before returning it as a file part. The conversation endpoint continues returning generated audio as `audio_base64` and `audio_mime`.
+
+The conversation workflow's `lang_a` and `lang_b` Start inputs are dropdowns containing the same languages as the Flutter client.
 
 Conversation state is persisted by the bridge in Firestore; Dify should pass the same `session_id` through each turn and summary request. Starting a new conversation creates a distinct session. The client does not expose a `reset` action, and starting a new session does not close the previous one. Summarization can close a session by sending `close_after: "yes"`.
 
