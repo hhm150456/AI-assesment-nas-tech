@@ -31,6 +31,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
   String? _inputMessage;
   Duration _recordingDuration = Duration.zero;
   bool _isRecording = false;
+  bool _isStartingRecording = false;
   bool _isProcessing = false;
 
   @override
@@ -42,10 +43,11 @@ class _TranslateScreenState extends State<TranslateScreen> {
   }
 
   Future<void> _startRecording() async {
-    if (_isProcessing || _isRecording) {
+    if (_isProcessing || _isRecording || _isStartingRecording) {
       return;
     }
     setState(() {
+      _isStartingRecording = true;
       _inputMessage = null;
       _requestError = null;
     });
@@ -84,6 +86,10 @@ class _TranslateScreenState extends State<TranslateScreen> {
           () => _inputMessage = 'Could not start recording. Please try again.',
         );
       }
+    } finally {
+      if (mounted) {
+        setState(() => _isStartingRecording = false);
+      }
     }
   }
 
@@ -119,7 +125,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
   }
 
   Future<void> _pickAudio() async {
-    if (_isProcessing || _isRecording) {
+    if (_isProcessing || _isRecording || _isStartingRecording) {
       return;
     }
     setState(() {
@@ -175,7 +181,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
 
   Future<void> _submit() async {
     final clip = _clip;
-    if (clip == null || _isProcessing) {
+    if (clip == null || _isProcessing || _isStartingRecording) {
       return;
     }
     setState(() {
@@ -270,7 +276,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
         actions: [
           IconButton(
             tooltip: 'Reset',
-            onPressed: _isProcessing ? null : _reset,
+            onPressed: _isProcessing || _isStartingRecording ? null : _reset,
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -293,8 +299,8 @@ class _TranslateScreenState extends State<TranslateScreen> {
               LanguagePicker(
                 label: 'Translate to',
                 value: _targetLanguage,
-                enabled: !_isProcessing,
-                onChanged: _isProcessing
+                enabled: !_isProcessing && !_isStartingRecording,
+                onChanged: _isProcessing || _isStartingRecording
                     ? (_) {}
                     : (language) => setState(() => _targetLanguage = language),
               ),
@@ -304,20 +310,29 @@ class _TranslateScreenState extends State<TranslateScreen> {
                 runSpacing: 12,
                 children: [
                   FilledButton.icon(
-                    onPressed: _isProcessing
+                    onPressed: _isProcessing || _isStartingRecording
                         ? null
                         : _isRecording
                         ? _stopRecording
                         : _startRecording,
-                    icon: Icon(_isRecording ? Icons.stop : Icons.mic),
+                    icon: _isStartingRecording
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Icon(_isRecording ? Icons.stop : Icons.mic),
                     label: Text(
-                      _isRecording
+                      _isStartingRecording
+                          ? 'Starting…'
+                          : _isRecording
                           ? 'Stop recording  ${_durationLabel(_recordingDuration)}'
                           : 'Record audio',
                     ),
                   ),
                   OutlinedButton.icon(
-                    onPressed: _isProcessing || _isRecording
+                    onPressed:
+                        _isProcessing || _isRecording || _isStartingRecording
                         ? null
                         : _pickAudio,
                     icon: const Icon(Icons.upload_file),
@@ -358,7 +373,11 @@ class _TranslateScreenState extends State<TranslateScreen> {
               ],
               const SizedBox(height: 12),
               FilledButton.icon(
-                onPressed: clip == null || _isProcessing || _isRecording
+                onPressed:
+                    clip == null ||
+                        _isProcessing ||
+                        _isRecording ||
+                        _isStartingRecording
                     ? null
                     : _submit,
                 icon: _isProcessing

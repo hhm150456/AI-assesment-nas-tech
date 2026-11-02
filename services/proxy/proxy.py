@@ -353,14 +353,22 @@ async def _read_and_validate_audio(file: UploadFile) -> tuple[bytes, str, str]:
 
 
 def _workflow_message(outputs: dict[str, Any], expected_status: str) -> str | None:
-    if outputs.get("status") == "error":
+    status = outputs.get("status")
+    if status == "error":
         message = outputs.get("message")
         if isinstance(message, str) and message.strip():
             return message.strip()[:500]
         return "The translation service could not process this request. Please try again."
-    if outputs.get("status") != expected_status:
-        raise ValueError("The workflow returned an invalid status.")
-    return None
+    if status == expected_status:
+        return None
+    if (
+        expected_status == "success"
+        and isinstance(status, int)
+        and not isinstance(status, bool)
+        and 200 <= status < 300
+    ):
+        return None
+    raise ValueError("The workflow returned an invalid status.")
 
 
 def _output_text(outputs: dict[str, Any], key: str) -> str:
