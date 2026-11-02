@@ -77,8 +77,8 @@ class NewSession(BaseModel):
 
 class Turn(BaseModel):
     speaker: Literal["A", "B"]
-    source_lang: str = Field(min_length=2, max_length=64)
-    target_lang: str = Field(min_length=2, max_length=64)
+    source_lang: Optional[str] = Field(default=None, max_length=64)
+    target_lang: Optional[str] = Field(default=None, max_length=64)
     source_text: str = Field(min_length=1, max_length=20000)
     translated_text: str = Field(min_length=1, max_length=20000)
     latency_ms: Optional[int] = None
@@ -155,14 +155,21 @@ def _add_turn_transaction(transaction, ref, data):
 @router.post("/sessions/{sid}/turns")
 def add_turn(sid: str, turn: Turn, x_api_key: str = Header(None)):
     _auth(x_api_key)
-    ref, _ = _get_session(sid)
+    ref, session = _get_session(sid)
+    lang_a = session.get("langA")
+    lang_b = session.get("langB")
+    if not isinstance(lang_a, str) or not isinstance(lang_b, str):
+        raise HTTPException(409, "session_languages_invalid")
+    source_lang, target_lang = (
+        (lang_a, lang_b) if turn.speaker == "A" else (lang_b, lang_a)
+    )
     sequence = _add_turn_transaction(
         _firestore().transaction(),
         ref,
         {
             "speaker": turn.speaker,
-            "sourceLang": turn.source_lang,
-            "targetLang": turn.target_lang,
+            "sourceLang": source_lang,
+            "targetLang": target_lang,
             "sourceText": turn.source_text,
             "translatedText": turn.translated_text,
             "latencyMs": turn.latency_ms,
