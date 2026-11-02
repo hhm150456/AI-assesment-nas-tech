@@ -263,6 +263,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
       final result = await _api.sendConversationTurn(
         sessionId: session.sessionId,
         speaker: speaker,
+        languageA: session.languageA,
+        languageB: session.languageB,
         audio: clip,
       );
       if (mounted) {

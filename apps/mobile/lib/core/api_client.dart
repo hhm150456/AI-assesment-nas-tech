@@ -72,6 +72,8 @@ class ApiClient {
   Future<ConversationTurnResult> sendConversationTurn({
     required String sessionId,
     required String speaker,
+    required String languageA,
+    required String languageB,
     required AudioClip audio,
   }) async {
     final validationError = validateAudioFile(
@@ -84,7 +86,12 @@ class ApiClient {
     }
     final json = await _postMultipart(
       '/api/conversation/turn',
-      fields: {'session_id': sessionId, 'speaker': speaker},
+      fields: {
+        'session_id': sessionId,
+        'speaker': speaker,
+        'lang_a': languageA,
+        'lang_b': languageB,
+      },
       audio: audio,
     );
     try {

@@ -172,7 +172,12 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
             response = await self.client.post(
                 "/api/conversation/turn",
                 headers={"X-Device-Id": "a" * 32},
-                data={"session_id": "session12345", "speaker": "A"},
+                data={
+                    "session_id": "session12345",
+                    "speaker": "A",
+                    "lang_a": "English",
+                    "lang_b": "Arabic",
+                },
                 files={"audio": ("input.mp3", b"a" * 1024, "audio/mpeg")},
             )
 
@@ -191,7 +196,22 @@ class ConversationTurnApiTests(unittest.IsolatedAsyncioTestCase):
                 "audio_mime": "audio/mpeg",
             },
         )
-        self.assertEqual(run.await_args.kwargs["inputs"]["action"], "turn")
+        self.assertEqual(
+            run.await_args.kwargs["inputs"],
+            {
+                "action": "turn",
+                "session_id": "session12345",
+                "speaker": "A",
+                "lang_a": "English",
+                "lang_b": "Arabic",
+                "audio": {
+                    "type": "audio",
+                    "transfer_method": "local_file",
+                    "upload_file_id": "upload-id",
+                },
+                "close_after": "no",
+            },
+        )
         self.assertEqual(download.await_args.args[0], outputs)
 
     async def test_normalizes_dify_summary_output_for_flutter(self) -> None:

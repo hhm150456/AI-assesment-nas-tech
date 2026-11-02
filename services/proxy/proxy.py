@@ -589,12 +589,19 @@ async def conversation_turn(
     request: Request,
     session_id: str = Form(...),
     speaker: str = Form(...),
+    lang_a: str = Form(..., min_length=1, max_length=80),
+    lang_b: str = Form(..., min_length=1, max_length=80),
     audio: UploadFile = File(...),
 ) -> JSONResponse:
     device_id = _device_id(request)
     session_id = _session_id(session_id)
     if speaker not in {"A", "B"}:
         raise HTTPException(status_code=400, detail="Choose participant A or B.")
+    if not lang_a.strip() or not lang_b.strip() or lang_a == lang_b:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide two different conversation languages.",
+        )
     content, file_name, content_type = await _read_and_validate_audio(audio)
     api_base = _dify_base_url()
     api_key = _api_key("conversation")
@@ -615,11 +622,14 @@ async def conversation_turn(
                     "action": "turn",
                     "session_id": session_id,
                     "speaker": speaker,
+                    "lang_a": lang_a,
+                    "lang_b": lang_b,
                     "audio": {
                         "type": "audio",
                         "transfer_method": "local_file",
                         "upload_file_id": file_id,
                     },
+                    "close_after": "no",
                 },
                 device_id=device_id,
                 api_base=api_base,
