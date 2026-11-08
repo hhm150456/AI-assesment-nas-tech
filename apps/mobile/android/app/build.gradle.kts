@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.example.voice_translate"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37 // Required by permission_handler_android.
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
